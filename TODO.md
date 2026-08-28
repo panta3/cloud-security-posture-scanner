@@ -1,10 +1,11 @@
 # TODO — Cloud Security Posture Scanner
 
 ## September
-- [ ] Implement `Rule` base + engine runner (`src/scanner/engine.py`)
-- [ ] Implement first 5-8 CIS checks (see README) in `src/scanner/rules/`
-- [ ] CLI entry point that runs all rules against a given AWS profile, prints a report
-- [ ] Set up a sandbox AWS account/IAM user to actually test against — don't run this against anything that matters yet
+- [x] Implement `Rule` base + engine runner (`src/scanner/engine.py`)
+- [x] Implement first 5 CIS checks (see README) in `src/scanner/rules/`
+- [x] CLI entry point that runs all rules against a given AWS profile, prints a report
+- [x] Set up a sandbox AWS account/IAM user to actually test against
+- [x] Validated detection end-to-end: deliberately created a public S3 bucket, confirmed the scanner flagged it (S3.1, CRITICAL), cleaned up, confirmed the scan goes clean again
 
 ## October
 - [ ] `lambda_handler.py` — wrap the engine for Lambda invocation
@@ -20,4 +21,5 @@
 
 ## Notes
 - Keep rules read-only by default. Auto-remediation is opt-in and scoped tight.
-- Test each rule against a deliberately misconfigured sandbox resource before trusting it.
+- Test each rule against a deliberately misconfigured sandbox resource before trusting it
+  (done for S3.1 — IAM.1, EC2.1, RDS.1, EC2.2 still only validated on the negative case).
