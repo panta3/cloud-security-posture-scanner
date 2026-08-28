@@ -5,6 +5,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.4"
+    }
   }
 }
 
@@ -29,12 +33,18 @@ resource "aws_sns_topic" "alerts" {
   name = "posture-scanner-alerts"
 }
 
-# TODO: aws_sns_topic_subscription for var.alert_email, once that's decided.
+resource "aws_sns_topic_subscription" "alert_email" {
+  count     = var.alert_email == "" ? 0 : 1
+  topic_arn = aws_sns_topic.alerts.arn
+  protocol  = "email"
+  endpoint  = var.alert_email
+}
 
 # --- Least-privilege role for the scanner itself --------------------------
-# TODO: this is the important part to get right — read-only on every
-# service the rules touch (s3, iam, ec2, rds), plus write access to
-# the findings table and publish access to the alerts topic. Nothing else.
+# Read-only on every service the rules touch (s3, iam, ec2, rds), plus
+# write access to the findings table and publish access to the alerts
+# topic. Nothing else — the scanner should never be able to modify what
+# it's auditing.
 resource "aws_iam_role" "scanner" {
   name = "posture-scanner-lambda-role"
 
@@ -50,19 +60,80 @@ resource "aws_iam_role" "scanner" {
   })
 }
 
-# TODO: aws_iam_role_policy attaching the least-privilege permissions above.
+resource "aws_iam_role_policy" "scanner_permissions" {
+  name = "posture-scanner-permissions"
+  role = aws_iam_role.scanner.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "ReadOnlyAudit"
+        Effect = "Allow"
+        Action = [
+          "s3:ListAllMyBuckets",
+          "s3:GetBucketPolicyStatus",
+          "iam:ListPolicies",
+          "iam:GetPolicyVersion",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeVolumes",
+          "rds:DescribeDBInstances",
+        ]
+        Resource = "*"
+        # These are all read-only, account-wide describe/list calls with
+        # no resource-level ARN support in IAM — "*" is correct here, not
+        # a shortcut. Scoping comes from the action list, not the resource.
+      },
+      {
+        Sid      = "WriteFindings"
+        Effect   = "Allow"
+        Action   = ["dynamodb:PutItem", "dynamodb:BatchWriteItem"]
+        Resource = aws_dynamodb_table.findings.arn
+      },
+      {
+        Sid      = "PublishAlerts"
+        Effect   = "Allow"
+        Action   = ["sns:Publish"]
+        Resource = aws_sns_topic.alerts.arn
+      },
+      {
+        Sid      = "LambdaLogging"
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
+        Resource = "arn:aws:logs:*:*:*"
+      },
+    ]
+  })
+}
 
 # --- The scanner Lambda ----------------------------------------------------
-# TODO: packaging — this needs a zip/layer with boto3 + the scanner package.
-# Leaving as a placeholder until the Lambda packaging story is decided.
-#
-# resource "aws_lambda_function" "scanner" {
-#   function_name = "posture-scanner"
-#   role          = aws_iam_role.scanner.arn
-#   handler       = "lambda_handler.handler"
-#   runtime       = "python3.12"
-#   filename      = "../build/scanner.zip"
-# }
+# boto3 ships with the Lambda Python runtime already — the zip only needs
+# our own code (lambda_handler.py + the scanner package), which is why
+# lambda_handler.py lives in src/ alongside scanner/: source_dir zips
+# whatever's in that one directory, so they need to sit together.
+data "archive_file" "scanner_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/../src"
+  output_path = "${path.module}/build/scanner.zip"
+  excludes    = ["scanner.egg-info", "__pycache__"]
+}
+
+resource "aws_lambda_function" "scanner" {
+  function_name    = "posture-scanner"
+  role              = aws_iam_role.scanner.arn
+  handler           = "lambda_handler.handler"
+  runtime           = "python3.12"
+  timeout           = 60
+  filename          = data.archive_file.scanner_zip.output_path
+  source_code_hash  = data.archive_file.scanner_zip.output_base64sha256
+
+  environment {
+    variables = {
+      FINDINGS_TABLE_NAME = aws_dynamodb_table.findings.name
+      ALERTS_TOPIC_ARN    = aws_sns_topic.alerts.arn
+    }
+  }
+}
 
 # --- Schedule ---------------------------------------------------------------
 resource "aws_cloudwatch_event_rule" "schedule" {
@@ -70,5 +141,15 @@ resource "aws_cloudwatch_event_rule" "schedule" {
   schedule_expression = var.scan_schedule
 }
 
-# TODO: aws_cloudwatch_event_target pointing at the Lambda, plus the
-# aws_lambda_permission that lets EventBridge invoke it.
+resource "aws_cloudwatch_event_target" "scanner" {
+  rule = aws_cloudwatch_event_rule.schedule.name
+  arn  = aws_lambda_function.scanner.arn
+}
+
+resource "aws_lambda_permission" "allow_eventbridge" {
+  statement_id  = "AllowEventBridgeInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.scanner.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.schedule.arn
+}
