@@ -129,6 +129,14 @@ resource "aws_iam_role_policy" "scanner_permissions" {
         Action   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
         Resource = "arn:aws:logs:*:*:*"
       },
+      {
+        Sid    = "PublishMetrics"
+        Effect = "Allow"
+        Action = ["cloudwatch:PutMetricData"]
+        # PutMetricData doesn't support resource-level restriction —
+        # AWS requires "*" here regardless of how narrow you want to be.
+        Resource = "*"
+      },
     ]
   })
 }
@@ -184,4 +192,102 @@ resource "aws_lambda_permission" "allow_eventbridge" {
   function_name = aws_lambda_function.scanner.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.schedule.arn
+}
+
+# --- Observability -----------------------------------------------------
+# Domain-specific metrics (findings, severity breakdown, remediation)
+# come from scanner/metrics.py, published on every invoke. Lambda's own
+# Duration/Errors/Invocations metrics are free — no code needed for
+# those, just referencing the AWS/Lambda namespace below.
+resource "aws_cloudwatch_dashboard" "scanner" {
+  dashboard_name = "posture-scanner"
+
+  dashboard_body = jsonencode({
+    widgets = [
+      {
+        type   = "text"
+        x      = 0
+        y      = 0
+        width  = 24
+        height = 1
+        properties = {
+          markdown = "# Posture Scanner — Operational Dashboard"
+        }
+      },
+      {
+        type   = "metric"
+        x      = 0
+        y      = 1
+        width  = 12
+        height = 6
+        properties = {
+          title  = "Scan Duration"
+          region = var.aws_region
+          view   = "timeSeries"
+          stat   = "Average"
+          period = 86400
+          metrics = [
+            ["PostureScanner", "ScanDuration"]
+          ]
+        }
+      },
+      {
+        type   = "metric"
+        x      = 12
+        y      = 1
+        width  = 12
+        height = 6
+        properties = {
+          title  = "Findings — Total / New / Remediated"
+          region = var.aws_region
+          view   = "timeSeries"
+          stat   = "Maximum"
+          period = 86400
+          metrics = [
+            ["PostureScanner", "TotalFindings"],
+            ["PostureScanner", "NewFindings"],
+            ["PostureScanner", "RemediatedFindings"],
+          ]
+        }
+      },
+      {
+        type   = "metric"
+        x      = 0
+        y      = 7
+        width  = 12
+        height = 6
+        properties = {
+          title  = "Findings by Severity"
+          region = var.aws_region
+          view   = "timeSeries"
+          stat   = "Maximum"
+          period = 86400
+          metrics = [
+            ["PostureScanner", "FindingsBySeverity", "Severity", "CRITICAL"],
+            ["PostureScanner", "FindingsBySeverity", "Severity", "HIGH"],
+            ["PostureScanner", "FindingsBySeverity", "Severity", "MEDIUM"],
+            ["PostureScanner", "FindingsBySeverity", "Severity", "LOW"],
+          ]
+        }
+      },
+      {
+        type   = "metric"
+        x      = 12
+        y      = 7
+        width  = 12
+        height = 6
+        properties = {
+          title  = "Lambda Health (built-in, no custom code)"
+          region = var.aws_region
+          view   = "timeSeries"
+          stat   = "Sum"
+          period = 86400
+          metrics = [
+            ["AWS/Lambda", "Invocations", "FunctionName", aws_lambda_function.scanner.function_name],
+            ["AWS/Lambda", "Errors", "FunctionName", aws_lambda_function.scanner.function_name],
+          ]
+        }
+      },
+    ]
+  })
 }

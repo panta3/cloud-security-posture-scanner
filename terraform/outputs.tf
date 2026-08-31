@@ -13,3 +13,7 @@ output "lambda_function_name" {
 output "schedule_expression" {
   value = aws_cloudwatch_event_rule.schedule.schedule_expression
 }
+
+output "dashboard_url" {
+  value = "https://${var.aws_region}.console.aws.amazon.com/cloudwatch/home?region=${var.aws_region}#dashboards:name=${aws_cloudwatch_dashboard.scanner.dashboard_name}"
+}

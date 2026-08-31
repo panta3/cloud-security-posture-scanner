@@ -36,6 +36,13 @@ EventBridge (schedule) -> Lambda (scanner) -> DynamoDB (findings, active/resolve
 - [x] RDS instances publicly accessible — **remediable**
 - [x] EBS volumes without encryption
 
+## Observability
+A CloudWatch dashboard (`terraform/main.tf` → `aws_cloudwatch_dashboard.scanner`,
+URL via `terraform output dashboard_url`) tracks scan latency, findings
+count (total/new/remediated), and a severity breakdown, all published by
+`src/scanner/metrics.py` on every invoke — plus Lambda's own free
+Invocations/Errors metrics on the same board.
+
 ## Stretch goal (only if on schedule — see project TODO)
 Extend the rule engine to also audit a local Kubernetes cluster (RBAC,
 network policies, pod security) against the CIS Kubernetes Benchmark.
@@ -54,8 +61,8 @@ subset) as a Terraform variable — left empty by default.
 
 ## Status
 Core scope complete: detection, the serverless pipeline, findings
-lifecycle, and opt-in remediation are all deployed and validated live.
-See `TODO.md` for what's left (CloudWatch dashboard, demo screenshots,
-optional K8s stretch) and for a couple of real bugs found and fixed
-along the way — worth reading if you want the honest version, not just
-the checklist.
+lifecycle, opt-in remediation, and the CloudWatch dashboard are all
+deployed and validated live. See `TODO.md` for what's left (demo
+screenshots, optional K8s stretch) and for several real bugs found and
+fixed along the way — worth reading if you want the honest version, not
+just the checklist.
