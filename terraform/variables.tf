@@ -15,3 +15,9 @@ variable "alert_email" {
   type        = string
   default     = ""
 }
+
+variable "auto_remediate_rules" {
+  description = "Comma-separated CIS rule IDs to auto-remediate (e.g. \"S3.1,RDS.1\"). Empty by default — remediation is opt-in, not automatic."
+  type        = string
+  default     = ""
+}

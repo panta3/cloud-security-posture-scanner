@@ -93,6 +93,21 @@ resource "aws_iam_role_policy" "scanner_permissions" {
         # a shortcut. Scoping comes from the action list, not the resource.
       },
       {
+        Sid    = "Remediation"
+        Effect = "Allow"
+        # Deliberately narrow and kept as its own statement, separate
+        # from ReadOnlyAudit, so it's obvious at a glance that these two
+        # permissions are the entire "can actually change something"
+        # surface — matches exactly the two remediate() implementations
+        # in rules/s3_public_access.py and rules/rds_public.py. Nothing
+        # here can delete a resource or touch IAM/security groups.
+        Action = [
+          "s3:PutBucketPublicAccessBlock",
+          "rds:ModifyDBInstance",
+        ]
+        Resource = "*"
+      },
+      {
         Sid      = "WriteFindings"
         Effect   = "Allow"
         # Scan: needed to find previously-ACTIVE findings to diff against
@@ -145,8 +160,9 @@ resource "aws_lambda_function" "scanner" {
 
   environment {
     variables = {
-      FINDINGS_TABLE_NAME = aws_dynamodb_table.findings.name
-      ALERTS_TOPIC_ARN    = aws_sns_topic.alerts.arn
+      FINDINGS_TABLE_NAME  = aws_dynamodb_table.findings.name
+      ALERTS_TOPIC_ARN     = aws_sns_topic.alerts.arn
+      AUTO_REMEDIATE_RULES = var.auto_remediate_rules
     }
   }
 }

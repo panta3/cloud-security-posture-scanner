@@ -77,7 +77,11 @@ def write_findings(findings: list[Finding], table_name: str) -> list[Finding]:
     return new_findings
 
 
-def publish_alerts(findings: list[Finding], topic_arn: str) -> None:
+def publish_alerts(
+    findings: list[Finding],
+    topic_arn: str,
+    remediated: list[Finding] | None = None,
+) -> None:
     # Only Critical/High findings page anyone — a Medium/Low finding in
     # every scan's alert would just train everyone to ignore the topic.
     # Callers should pass only *new* findings here (see write_findings) —
@@ -87,10 +91,12 @@ def publish_alerts(findings: list[Finding], topic_arn: str) -> None:
     if not alertable:
         return
 
-    lines = [
-        f"[{f.severity}] {f.rule_id} — {f.resource_id}: {f.message}"
-        for f in alertable
-    ]
+    remediated_keys = {_finding_key(f) for f in (remediated or [])}
+
+    lines = []
+    for f in alertable:
+        tag = "[AUTO-FIXED]" if _finding_key(f) in remediated_keys else f"[{f.severity}]"
+        lines.append(f"{tag} {f.rule_id} — {f.resource_id}: {f.message}")
 
     sns = boto3.client("sns")
     sns.publish(
