@@ -26,6 +26,14 @@ resource "aws_dynamodb_table" "findings" {
     name = "id"
     type = "S"
   }
+
+  # RESOLVED findings get a 30-day expires_at (see notify.py) so they
+  # clean up automatically instead of accumulating forever. ACTIVE
+  # findings never get expires_at set, so they're never auto-deleted.
+  ttl {
+    attribute_name = "expires_at"
+    enabled        = true
+  }
 }
 
 # --- Alerting -------------------------------------------------------------
@@ -87,7 +95,11 @@ resource "aws_iam_role_policy" "scanner_permissions" {
       {
         Sid      = "WriteFindings"
         Effect   = "Allow"
-        Action   = ["dynamodb:PutItem", "dynamodb:BatchWriteItem"]
+        # Scan: needed to find previously-ACTIVE findings to diff against
+        # the current scan (see notify.py). UpdateItem replaced PutItem
+        # once findings became upserts keyed by rule_id#resource_id
+        # instead of one-shot writes keyed by a random UUID.
+        Action   = ["dynamodb:Scan", "dynamodb:UpdateItem"]
         Resource = aws_dynamodb_table.findings.arn
       },
       {
@@ -124,6 +136,10 @@ resource "aws_lambda_function" "scanner" {
   handler           = "lambda_handler.handler"
   runtime           = "python3.12"
   timeout           = 60
+  # Default 128MB hit its ceiling on one run and the invocation timed out
+  # with no error logged (likely GC/network thrashing under memory
+  # pressure) — Lambda scales CPU with memory, so this buys both.
+  memory_size       = 256
   filename          = data.archive_file.scanner_zip.output_path
   source_code_hash  = data.archive_file.scanner_zip.output_base64sha256
 
