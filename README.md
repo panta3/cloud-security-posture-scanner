@@ -43,6 +43,44 @@ count (total/new/remediated), and a severity breakdown, all published by
 `src/scanner/metrics.py` on every invoke — plus Lambda's own free
 Invocations/Errors metrics on the same board.
 
+## Demo: a real finding, start to finish
+This isn't a mockup — these are widget images pulled straight from the
+live CloudWatch dashboard after actually running the pipeline against a
+throwaway test bucket in the sandbox account:
+
+1. Created `posture-scanner-demo-<timestamp>`, deliberately made it public
+   (bucket policy + Block Public Access off).
+2. Invoked the deployed Lambda. It found the bucket, wrote a `CRITICAL`
+   finding to DynamoDB, and fired an SNS alert:
+   ```json
+   {"rule_id": "S3.1", "resource_id": "posture-scanner-demo-1788227699",
+    "severity": "CRITICAL",
+    "message": "S3 bucket 'posture-scanner-demo-1788227699' is publicly accessible."}
+   ```
+3. Called the S3 rule's `remediate()` directly (turns on all four Block
+   Public Access settings), then re-invoked the Lambda. The finding's
+   DynamoDB row flipped to `RESOLVED` with a `resolved_at` timestamp and
+   a 30-day TTL for auto-cleanup — no duplicate row, same deterministic
+   key (`S3.1#posture-scanner-demo-...`) throughout.
+4. Deleted the test bucket.
+
+![Findings total/new/remediated over the demo run](docs/screenshots/findings-timeline.png)
+![Scan duration over the demo run](docs/screenshots/scan-duration.png)
+
+**A real bug turned up mid-demo, on the first attempt at step 3**: the
+Lambda kept re-flagging the bucket as `CRITICAL` even after remediation,
+while a local scan using my own (broader) IAM credentials correctly saw
+it as clean. Added temporary logging, redeployed, and found the actual
+cause in the logs — an `AccessDenied` on `GetPublicAccessBlock`, because
+I'd granted the IAM action `s3:GetPublicAccessBlock` in Terraform, but
+AWS's real action name for that permission is `s3:GetBucketPublicAccessBlock`
+(the API operation and the IAM action name don't match — a genuine AWS
+naming inconsistency, not a typo I could've caught by re-reading the
+code). Fixed the action name, redeployed, and the flow above is the
+result after that fix — the finding resolved correctly on the next
+invoke. Left in `TODO.md` as one more real bug found through live
+testing rather than smoothed over.
+
 ## Stretch goal (only if on schedule — see project TODO)
 Extend the rule engine to also audit a local Kubernetes cluster (RBAC,
 network policies, pod security) against the CIS Kubernetes Benchmark.

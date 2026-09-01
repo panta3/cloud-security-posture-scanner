@@ -81,6 +81,7 @@ resource "aws_iam_role_policy" "scanner_permissions" {
         Action = [
           "s3:ListAllMyBuckets",
           "s3:GetBucketPolicyStatus",
+          "s3:GetBucketPublicAccessBlock",
           "iam:ListPolicies",
           "iam:GetPolicyVersion",
           "ec2:DescribeSecurityGroups",
