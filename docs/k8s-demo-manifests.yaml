@@ -1,0 +1,42 @@
+# Deliberately misconfigured resources used to validate the K8s audit
+# checks against a real cluster (see docs/k8s-demo.md). Not meant to be
+# applied to any real environment — everything here is intentionally bad.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: posture-demo
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: privileged-pod
+  namespace: posture-demo
+spec:
+  containers:
+    - name: app
+      image: nginx:1.27
+      securityContext:
+        privileged: true
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: root-pod
+  namespace: posture-demo
+spec:
+  containers:
+    - name: app
+      image: nginx:1.27
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: demo-default-sa-cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: posture-demo
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io

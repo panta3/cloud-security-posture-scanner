@@ -81,9 +81,20 @@ result after that fix — the finding resolved correctly on the next
 invoke. Left in `TODO.md` as one more real bug found through live
 testing rather than smoothed over.
 
-## Stretch goal (only if on schedule — see project TODO)
-Extend the rule engine to also audit a local Kubernetes cluster (RBAC,
-network policies, pod security) against the CIS Kubernetes Benchmark.
+## Stretch: Kubernetes cluster audit
+Extends the same "one rule, one file, one `Finding` type" pattern to a
+Kubernetes cluster — separate from the AWS pipeline (`src/scanner/k8s_*`),
+since a Lambda has no route to a cluster's API server. Validated against
+a real local `kind` cluster with deliberately misconfigured resources —
+see `docs/k8s-demo.md` for the real before/after output.
+- [x] **RBAC.1** — `ClusterRoleBinding`s granting `cluster-admin` outside the cluster's own system identities (CIS 5.1.x)
+- [x] **PodSecurity.1** — privileged containers / containers allowing privilege escalation (CIS 5.2.1/5.2.5)
+- [x] **PodSecurity.2** — containers with no `runAsNonRoot` restriction (CIS 5.2.6)
+- [x] **NET.1** — namespaces with running pods and no `NetworkPolicy` at all (CIS 5.3.2)
+```bash
+pip install -r requirements.txt   # pulls in the kubernetes client too
+python -m scanner.k8s_cli --context <kubeconfig-context>
+```
 
 ## Setup
 ```bash
@@ -98,9 +109,9 @@ To enable remediation, set `auto_remediate_rules = "S3.1,RDS.1"` (or a
 subset) as a Terraform variable — left empty by default.
 
 ## Status
-Core scope complete: detection, the serverless pipeline, findings
-lifecycle, opt-in remediation, and the CloudWatch dashboard are all
-deployed and validated live. See `TODO.md` for what's left (demo
-screenshots, optional K8s stretch) and for several real bugs found and
-fixed along the way — worth reading if you want the honest version, not
-just the checklist.
+Everything planned is complete, including the optional K8s stretch:
+detection, the serverless pipeline, findings lifecycle, opt-in
+remediation, the CloudWatch dashboard, and the Kubernetes cluster audit
+are all deployed and validated live. See `TODO.md` for several real bugs
+found and fixed along the way — worth reading if you want the honest
+version, not just the checklist.
